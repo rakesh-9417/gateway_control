@@ -47,13 +47,62 @@ add_hook('ClientAreaPage', 99999, function ($vars) {
             $invoiceId = (int) $_GET['id'];
 
             // Check if the invoice is for renewal (Hosting or Domain)
-            $isRenewal = Capsule::table('tblinvoiceitems')
+            $renewalItems = Capsule::table('tblinvoiceitems')
                 ->where('invoiceid', $invoiceId)
                 ->where(function ($query) {
                     $query->where('type', 'Hosting') // Service renewals
                           ->orWhere('type', 'Domain'); // Domain renewals
                 })
-                ->exists();
+                ->whereNotNull('relid')
+                ->where('relid', '>', 0)
+                ->get();
+
+            $isRenewal = false;
+            foreach ($renewalItems as $item) {
+                if ($item->type === 'Hosting') {
+                    // Check if hosting service exists and is active
+                    $serviceExists = Capsule::table('tblhosting')
+                        ->where('id', $item->relid)
+                        ->where('domainstatus', '!=', 'Terminated')
+                        ->exists();
+                    if ($serviceExists) {
+                        // Check if this is not the first invoice for this service
+                        $previousInvoices = Capsule::table('tblinvoiceitems')
+                            ->join('tblinvoices', 'tblinvoiceitems.invoiceid', '=', 'tblinvoices.id')
+                            ->where('tblinvoiceitems.relid', $item->relid)
+                            ->where('tblinvoiceitems.type', 'Hosting')
+                            ->where('tblinvoices.id', '<', $invoiceId)
+                            ->where('tblinvoices.status', '!=', 'Cancelled')
+                            ->count();
+                        
+                        if ($previousInvoices > 0) {
+                            $isRenewal = true;
+                            break;
+                        }
+                    }
+                } elseif ($item->type === 'Domain') {
+                    // Check if domain exists and is active
+                    $domainExists = Capsule::table('tbldomains')
+                        ->where('id', $item->relid)
+                        ->where('status', '!=', 'Terminated')
+                        ->exists();
+                    if ($domainExists) {
+                        // Check if this is not the first invoice for this domain
+                        $previousInvoices = Capsule::table('tblinvoiceitems')
+                            ->join('tblinvoices', 'tblinvoiceitems.invoiceid', '=', 'tblinvoices.id')
+                            ->where('tblinvoiceitems.relid', $item->relid)
+                            ->where('tblinvoiceitems.type', 'Domain')
+                            ->where('tblinvoices.id', '<', $invoiceId)
+                            ->where('tblinvoices.status', '!=', 'Cancelled')
+                            ->count();
+                        
+                        if ($previousInvoices > 0) {
+                            $isRenewal = true;
+                            break;
+                        }
+                    }
+                }
+            }
 
             if ($isRenewal) {
                 // Remove the restricted gateway from available options
@@ -153,16 +202,63 @@ add_hook('InvoiceCreation', 1, function ($vars) {
         ->where('invoiceid', $invoiceId)
         ->pluck('relid');
 
-    // $isRenewal_ = !empty($relatedIds) && Capsule::table('tblhosting')
-    //     ->whereIn('id', $relatedIds)
-    //     ->exists();
-    $isRenewal = Capsule::table('tblinvoiceitems')
+    // Check if the invoice is a renewal invoice
+    $renewalItems = Capsule::table('tblinvoiceitems')
         ->where('invoiceid', $invoiceId)
         ->where(function ($query) {
             $query->where('type', 'Hosting') // Check for service renewals
                     ->orWhere('type', 'Domain'); // Check for domain renewals
         })
-        ->exists();
+        ->whereNotNull('relid')
+        ->where('relid', '>', 0)
+        ->get();
+
+    $isRenewal = false;
+    foreach ($renewalItems as $item) {
+        if ($item->type === 'Hosting') {
+            // Check if hosting service exists and is active
+            $serviceExists = Capsule::table('tblhosting')
+                ->where('id', $item->relid)
+                ->where('domainstatus', '!=', 'Terminated')
+                ->exists();
+            if ($serviceExists) {
+                // Check if this is not the first invoice for this service
+                $previousInvoices = Capsule::table('tblinvoiceitems')
+                    ->join('tblinvoices', 'tblinvoiceitems.invoiceid', '=', 'tblinvoices.id')
+                    ->where('tblinvoiceitems.relid', $item->relid)
+                    ->where('tblinvoiceitems.type', 'Hosting')
+                    ->where('tblinvoices.id', '<', $invoiceId)
+                    ->where('tblinvoices.status', '!=', 'Cancelled')
+                    ->count();
+                
+                if ($previousInvoices > 0) {
+                    $isRenewal = true;
+                    break;
+                }
+            }
+        } elseif ($item->type === 'Domain') {
+            // Check if domain exists and is active
+            $domainExists = Capsule::table('tbldomains')
+                ->where('id', $item->relid)
+                ->where('status', '!=', 'Terminated')
+                ->exists();
+            if ($domainExists) {
+                // Check if this is not the first invoice for this domain
+                $previousInvoices = Capsule::table('tblinvoiceitems')
+                    ->join('tblinvoices', 'tblinvoiceitems.invoiceid', '=', 'tblinvoices.id')
+                    ->where('tblinvoiceitems.relid', $item->relid)
+                    ->where('tblinvoiceitems.type', 'Domain')
+                    ->where('tblinvoices.id', '<', $invoiceId)
+                    ->where('tblinvoices.status', '!=', 'Cancelled')
+                    ->count();
+                
+                if ($previousInvoices > 0) {
+                    $isRenewal = true;
+                    break;
+                }
+            }
+        }
+    }
 
     if ($isRenewal) {
         // Check if the current payment method matches the restricted one
